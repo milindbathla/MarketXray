@@ -59,3 +59,10 @@ desktop.ini
 *.log
 *.tmp
 *.swp
+
+# NASDAQ ITCH data — 4GB binary, never commit
+res/
+
+# Rust build artifacts
+rust_ingestor/target/
+rust_ingestor/Cargo.lock
