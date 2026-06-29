@@ -237,10 +237,16 @@ private:
                                                     {}, lob_.get_best_ask(), 20);
         snap.arbitrage_opportunity              = false; // computed on-demand, not per-tick
         snap.arbitrage_profit_factor            = 1.0;
-        snap.spoofing_detected                  = (stats_.spoof_alerts > 0);
-        snap.spoofing_cancel_ratio              = (stats_.total_cancels > 0)
-                                                    ? (double)stats_.spoof_alerts / stats_.total_cancels
-                                                    : 0.0;
+        // BUG FIX: spoofing_detected was set to (stats_.spoof_alerts > 0) which becomes
+        // permanently true after the first alert and never resets. Instead, track how many
+        // alerts fired in THIS snapshot window (since the last emit_snapshot call).
+        const uint64_t spoof_this_window = stats_.spoof_alerts - spoof_alerts_at_last_snapshot_;
+        spoof_alerts_at_last_snapshot_ = stats_.spoof_alerts;
+
+        snap.spoofing_detected     = (spoof_this_window > 0);
+        snap.spoofing_cancel_ratio = (stats_.total_cancels > 0)
+                                        ? (double)spoof_this_window / cfg_.snapshot_every_n
+                                        : 0.0;
         // Market impact: simulate a 10,000-share buy
         snap.impact_avg_fill_price              = 0.0;
         snap.impact_slippage_bps                = 0.0;
@@ -265,6 +271,7 @@ private:
 
     std::atomic<bool>   running_;
     EngineStats         stats_;
+    uint64_t            spoof_alerts_at_last_snapshot_ = 0; // BUG FIX: per-window spoofing
 
     std::vector<SnapshotCallback> callbacks_;
 };

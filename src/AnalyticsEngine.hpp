@@ -82,7 +82,13 @@ public:
     // Bid-Ask Spread
     // -------------------------------------------------------------------
     double get_spread(const LimitOrderBook& lob) const noexcept {
-        return (double)(lob.get_best_ask() - lob.get_best_bid());
+        // BUG FIX: both values are uint32_t — naive subtraction wraps to ~4.29B
+        // when ask sentinel (1,000,000) is active (no asks in book).
+        // Cast to int64_t first; return -1.0 as sentinel for "no valid spread".
+        const int64_t ask = static_cast<int64_t>(lob.get_best_ask());
+        const int64_t bid = static_cast<int64_t>(lob.get_best_bid());
+        if (ask >= 1'000'000 || ask <= bid) return -1.0;
+        return static_cast<double>(ask - bid);
     }
 
     uint64_t total_trade_count() const noexcept { return total_trade_count_; }

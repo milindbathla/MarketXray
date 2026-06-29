@@ -220,8 +220,13 @@ struct SpoofingAlert {
 class SpoofingDetector {
 public:
     explicit SpoofingDetector(size_t window_ns = 500000000ULL, // 500ms
-                               double cancel_ratio_threshold = 0.85,
-                               uint32_t min_quantity = 5000)
+                               // BUG FIX: 0.85 fires constantly on real NASDAQ data where
+                               // 95-99% of orders are legitimately cancelled (market making).
+                               // 0.98 targets only extreme cancel-dominated clusters.
+                               double cancel_ratio_threshold = 0.98,
+                               // BUG FIX: 5000 shares is too small to filter noise;
+                               // raise to 50000 to require meaningful order volume.
+                               uint32_t min_quantity = 50000)
         : window_ns_(window_ns),
           threshold_(cancel_ratio_threshold),
           min_qty_(min_quantity) {}

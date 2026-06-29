@@ -32,10 +32,19 @@ endif()
 include_directories(src)
 
 # ---------------------------------------------------------------
-# Main Engine Executable
+# Main Engine Executable (stdout / benchmark)
 # ---------------------------------------------------------------
 add_executable(market_xray
     src/main.cpp
+)
+
+# ---------------------------------------------------------------
+# WebSocket Broadcaster (separate entry point — src/main_ws.cpp)
+# Streams JSON snapshots over WebSocket instead of stdout.
+# Connect any browser / dashboard to ws://localhost:9001
+# ---------------------------------------------------------------
+add_executable(market_xray_ws
+    src/main_ws.cpp
 )
 
 # ---------------------------------------------------------------
@@ -43,9 +52,11 @@ add_executable(market_xray
 # Linux:   rt for shm_open/mmap, pthread for threading
 # ---------------------------------------------------------------
 if(WIN32)
-    target_link_libraries(market_xray PRIVATE kernel32)
+    target_link_libraries(market_xray    PRIVATE kernel32)
+    target_link_libraries(market_xray_ws PRIVATE kernel32)
 elseif(UNIX)
-    target_link_libraries(market_xray PRIVATE rt pthread)
+    target_link_libraries(market_xray    PRIVATE rt pthread)
+    target_link_libraries(market_xray_ws PRIVATE rt pthread)
 endif()
 
 # ---------------------------------------------------------------
