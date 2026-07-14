@@ -33,6 +33,7 @@ export default function KpiStrip({ frame }: { frame: FeedFrame }) {
   const ofi = series((i) => window60[i].microstructure.ofi);
   const vwap = series((i) => window60[i].microstructure.vwap);
   const pin = series((i) => window60[i].pin.score);
+  const hawkes = series((i) => window60[i].hawkes.intensity);
   const spoof = series((i) => window60[i].spoofing.cancel_ratio);
   const flash = series((i) => window60[i].risk.flash_crash_probability);
 
@@ -74,6 +75,13 @@ export default function KpiStrip({ frame }: { frame: FeedFrame }) {
         <div className="kpi-row">
           <span className="kpi-value c-amber">{s.pin.score.toFixed(2)}</span>
           <Spark values={pin} color={AM} />
+        </div>
+      </div>
+      <div className={`kpi ${s.hawkes.critical ? "alert" : ""}`}>
+        <div className="kpi-label">Hawkes λ · {Math.round(s.hawkes.p_next_event_1s * 100)}% 1s</div>
+        <div className="kpi-row">
+          <span className="kpi-value c-cyan">{s.hawkes.intensity.toFixed(2)}</span>
+          <Spark values={hawkes} color={CY} />
         </div>
       </div>
       <div className={`kpi ${spoofActive ? "alert" : ""}`}>

@@ -1,19 +1,5 @@
 #pragma once
 
-// =============================================================================
-// SharedMemory.hpp — Cross-Platform Named Shared Memory
-// =============================================================================
-// Creates or opens a named shared memory region that both the C++ Analytics
-// Engine and the Rust Ingestor can map into their own address spaces.
-//
-// On Windows: uses CreateFileMapping / MapViewOfFile
-// On Linux:   uses shm_open / mmap (POSIX)
-//
-// The layout of the shared memory block is:
-//   [ SharedMemoryHeader (64 bytes) ][ SHMSPSCQueue<Tick, N> (flat array) ]
-//
-// Both Rust and C++ map the SAME physical RAM — zero copy, zero latency.
-// =============================================================================
 
 #include "Types.hpp"
 #include <cstring>
@@ -34,16 +20,6 @@
 
 namespace mxray {
 
-// =============================================================================
-// SHMSPSCQueue — Shared-Memory-Safe SPSC Ring Buffer
-// =============================================================================
-// CRITICAL DIFFERENCE from SPSCQueue.hpp:
-//   The old queue used std::vector (heap allocation) — CANNOT be in shared memory.
-//   This version embeds a flat C-style array directly in the struct body.
-//   The entire struct can be placed at any memory-mapped address.
-//
-// Rust side must mirror this layout exactly with #[repr(C)].
-// =============================================================================
 template<typename T, size_t CAPACITY>
 struct alignas(64) SHMSPSCQueue {
     static_assert((CAPACITY & (CAPACITY - 1)) == 0,
@@ -51,14 +27,11 @@ struct alignas(64) SHMSPSCQueue {
     static_assert(std::is_trivially_copyable_v<T>,
         "T must be trivially copyable to be safe across process boundaries.");
 
-    // Cache-line separated atomics to prevent false sharing
     alignas(64) std::atomic<uint64_t> head{0}; // Consumer reads from head
     alignas(64) std::atomic<uint64_t> tail{0}; // Producer writes to tail
 
-    // Flat array embedded directly in shared memory — NO heap allocation
     T buffer[CAPACITY];
 
-    // Called by PRODUCER (Rust ingestor thread)
     bool push(const T& item) noexcept {
         const uint64_t current_tail = tail.load(std::memory_order_relaxed);
         const uint64_t next_tail    = (current_tail + 1) & (CAPACITY - 1);
@@ -72,7 +45,6 @@ struct alignas(64) SHMSPSCQueue {
         return true;
     }
 
-    // Called by CONSUMER (C++ analytics thread)
     bool pop(T& out) noexcept {
         const uint64_t current_head = head.load(std::memory_order_relaxed);
 
@@ -101,11 +73,6 @@ struct alignas(64) SHMSPSCQueue {
     }
 };
 
-// =============================================================================
-// Shared Memory Layout
-// =============================================================================
-// Header occupies the first 64 bytes of the shared memory block.
-// It contains version info and a "ready" flag so C++ waits until Rust is live.
 struct alignas(64) SharedMemoryHeader {
     uint32_t magic;             // 0xMXRAY to validate correct mapping
     uint32_t version;           // Layout version for forward compatibility
@@ -118,8 +85,6 @@ struct alignas(64) SharedMemoryHeader {
 static constexpr uint32_t SHM_MAGIC   = 0x4D585259; // "MXRY"
 static constexpr uint32_t SHM_VERSION = 1;
 
-// The full shared memory block:
-// This struct is what BOTH Rust and C++ will map their pointers to.
 static constexpr size_t SHM_QUEUE_CAPACITY = 65536; // Must be power of 2
 
 struct SharedMemoryBlock {
@@ -129,14 +94,10 @@ struct SharedMemoryBlock {
 
 static_assert(sizeof(Tick) == 64, "Tick must be exactly 64 bytes for cache-line alignment.");
 
-// =============================================================================
-// SharedMemoryManager — RAII wrapper for the OS shared memory region
-// =============================================================================
 class SharedMemoryManager {
 public:
     static constexpr const char* DEFAULT_SHM_NAME = "/marketxray_shm";
 
-    // Creator = C++ side. Opens (or creates) the shared memory region.
     explicit SharedMemoryManager(const std::string& name = DEFAULT_SHM_NAME, bool create = true)
         : name_(name), create_(create), block_(nullptr) {
         map(create);
@@ -146,13 +107,11 @@ public:
         unmap();
     }
 
-    // No copy/move — ownership of OS handle is unique
     SharedMemoryManager(const SharedMemoryManager&) = delete;
     SharedMemoryManager& operator=(const SharedMemoryManager&) = delete;
 
     SharedMemoryBlock* block() const noexcept { return block_; }
 
-    // Spin-wait until the Rust producer sets rust_ready = 1
     void wait_for_rust(uint32_t timeout_ms = 120000) const {
         uint32_t elapsed = 0;
         while (block_->header.rust_ready.load(std::memory_order_acquire) != 1) {
@@ -169,7 +128,6 @@ public:
         }
     }
 
-    // Signal to Rust that C++ is ready to consume
     void signal_cpp_ready() const noexcept {
         block_->header.cpp_ready.store(1, std::memory_order_release);
     }
@@ -231,7 +189,6 @@ private:
 #endif
 
         if (create) {
-            // Zero out and initialize the header
             std::memset(block_, 0, shm_size);
             block_->header.magic          = SHM_MAGIC;
             block_->header.version        = SHM_VERSION;
@@ -240,7 +197,6 @@ private:
             block_->header.cpp_ready.store(0, std::memory_order_relaxed);
             block_->queue.reset();
         } else {
-            // Validate magic number
             if (block_->header.magic != SHM_MAGIC) {
                 throw std::runtime_error("[SharedMemory] Magic mismatch! Rust struct layout mismatch.");
             }

@@ -1,26 +1,3 @@
-// =============================================================================
-// main_ws.cpp — MarketXray WebSocket Broadcaster
-// =============================================================================
-// Separate entry point from main.cpp — does NOT modify any existing files.
-//
-// Reads ticks from the Rust ingestor via Shared Memory (same SHM region
-// as --daemon mode) but instead of printing JSON to stdout, broadcasts
-// every snapshot over a WebSocket so the visualisation team can connect
-// from any browser, Python script, or dashboard tool.
-//
-// Usage:
-//   ./market_xray_ws                        # default SHM, port 9001
-//   ./market_xray_ws --port 8080            # custom port
-//   ./market_xray_ws --shm /marketxray_shm  # custom SHM name
-//
-// Client example (JavaScript):
-//   const ws = new WebSocket("ws://localhost:9001");
-//   ws.onmessage = e => console.log(JSON.parse(e.data));
-//
-// Run order (same as --daemon):
-//   Terminal 1: ./market_xray_ws
-//   Terminal 2: cargo run --release   (in rust_ingestor/)
-// =============================================================================
 
 #include "EngineLoop.hpp"
 #include "SharedMemory.hpp"
@@ -37,9 +14,6 @@
 
 using namespace mxray;
 
-// ============================================================================
-// Global shutdown state
-// ============================================================================
 static std::atomic<bool> g_running{true};
 static EngineLoop*       g_engine_ptr = nullptr;
 
@@ -49,9 +23,6 @@ void signal_handler(int) {
     if (g_engine_ptr) g_engine_ptr->stop();
 }
 
-// ============================================================================
-// Entry Point
-// ============================================================================
 int main(int argc, char* argv[]) {
     std::string shm_name = SharedMemoryManager::DEFAULT_SHM_NAME;
     uint16_t    port     = 9001;
@@ -104,18 +75,12 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
     std::cout << "[WS Daemon] Press Ctrl+C to stop.\n\n";
 
-    // -------------------------------------------------------------------------
-    // 1. Start WebSocket server
-    // -------------------------------------------------------------------------
     WebSocketServer ws_server(port);
     if (!ws_server.start()) {
         std::cerr << "[WS Daemon] Failed to start WebSocket server. Exiting.\n";
         return 1;
     }
 
-    // -------------------------------------------------------------------------
-    // 2. Configure the analytics engine
-    // -------------------------------------------------------------------------
     EngineConfig cfg;
     cfg.snapshot_every_n = snapshot_every_n;
     cfg.verbose          = false;  // no per-tick stderr noise
@@ -123,9 +88,6 @@ int main(int argc, char* argv[]) {
     EngineLoop engine(cfg);
     g_engine_ptr = &engine;
 
-    // -------------------------------------------------------------------------
-    // 3. Wire snapshot callback → WebSocket broadcast (instead of stdout)
-    // -------------------------------------------------------------------------
     uint64_t broadcast_count = 0;
     auto last_broadcast = std::chrono::steady_clock::now();
     engine.on_snapshot([&](const std::string& json) {
@@ -141,7 +103,6 @@ int main(int argc, char* argv[]) {
         last_broadcast = now;
         ++broadcast_count;
 
-        // Print a brief heartbeat to the operator every 100 snapshots
         if (broadcast_count % 100 == 0) {
             std::cout << "[WS Daemon] " << broadcast_count
                       << " snapshots broadcast | "
@@ -150,22 +111,11 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    // -------------------------------------------------------------------------
-    // 4. Install signal handlers for clean shutdown
-    // -------------------------------------------------------------------------
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    // -------------------------------------------------------------------------
-    // 5. Block here until Ctrl+C or SIGTERM
-    //    run_from_shared_memory() creates the SHM region, waits for Rust,
-    //    then spins reading ticks and calling dispatch() on each one.
-    // -------------------------------------------------------------------------
     engine.run_from_shared_memory(shm_name);
 
-    // -------------------------------------------------------------------------
-    // 6. Shutdown summary
-    // -------------------------------------------------------------------------
     const auto& s = engine.stats();
     std::cout << "\n" << std::string(70, '=') << "\n";
     std::cout << "[WS Daemon] Shutdown complete.\n";

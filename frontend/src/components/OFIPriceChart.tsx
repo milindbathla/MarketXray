@@ -1,6 +1,3 @@
-// OFI vs Price Action — dual-axis canvas chart. OFI as green/red bars around a
-// zero baseline + net line; mid price as a white line on the right axis.
-// Hover/focus time is synchronized with the rest of the dashboard.
 
 import { scaleLinear } from "d3-scale";
 import { useMemo } from "react";
@@ -21,8 +18,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
     const snaps = frame.snaps.slice(first);
     const times = frame.times.slice(first);
     return snaps.length > 1 ? { snaps, times, start, end } : null;
-  // Feed history is a capped ring buffer and is updated in place. Revision is
-  // therefore the reliable signal for every incoming snapshot.
   }, [frame.revision, windowMs]);
 
   const n = view?.snaps.length ?? 0;
@@ -46,7 +41,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
     const yPx = scaleLinear().domain([pMin, pMin + pSpan]).range([padT + ih * 0.95, padT + ih * 0.05]);
     const barW = Math.max(1, iw / Math.max(1, n));
 
-    // gridlines + zero line
     ctx.strokeStyle = "rgba(148,163,184,0.08)";
     ctx.lineWidth = 1;
     for (let g = 0; g <= 4; g++) {
@@ -56,7 +50,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
     ctx.strokeStyle = "rgba(148,163,184,0.25)";
     ctx.beginPath(); ctx.moveTo(padL, yOfi(0)); ctx.lineTo(padL + iw, yOfi(0)); ctx.stroke();
 
-    // OFI bars
     for (let i = 0; i < n; i++) {
       const v = view.snaps[i].microstructure.ofi;
       ctx.fillStyle = v >= 0 ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)";
@@ -66,7 +59,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
       ctx.fillRect(cx - barW * 0.28, Math.min(y0, y1), barW * 0.56, Math.abs(y1 - y0));
     }
 
-    // OFI net line
     ctx.strokeStyle = "#22c55e";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -77,7 +69,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
     }
     ctx.stroke();
 
-    // mid price line
     ctx.strokeStyle = "rgba(255,255,255,0.85)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -88,7 +79,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
     }
     ctx.stroke();
 
-    // axes labels
     ctx.fillStyle = "#8b98a9";
     ctx.font = "10px JetBrains Mono";
     ctx.textAlign = "right";
@@ -99,7 +89,6 @@ export default function OFIPriceChart({ frame }: { frame: FeedFrame }) {
     ctx.fillText(`$${fmtPrice(pMax)}`, padL + iw + 4, padT + 8);
     ctx.fillText(`$${fmtPrice(pMin)}`, padL + iw + 4, padT + ih);
 
-    // crosshair
     if (focusTime !== null && focusTime >= view.start && focusTime <= view.end) {
       let i = 0;
       while (i < view.times.length - 1 && view.times[i] < focusTime) i++;

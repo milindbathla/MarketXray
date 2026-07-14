@@ -1,7 +1,3 @@
-// Spoofing Detector — log-log scatter of suspicious cancels.
-// X = time-to-cancellation (ms, log), Y = order size (lots, log).
-// Risk color from the engine's per-order score vs the threshold slider;
-// dashed anomaly box outlines the danger region (big size, fast cancel).
 
 import { useState } from "react";
 import type { FeedFrame } from "../feed";
@@ -25,7 +21,6 @@ export default function SpoofingScatter({ frame }: { frame: FeedFrame }) {
     const lx = (v: number) => padL + ((Math.log10(Math.max(X_MIN, Math.min(X_MAX, v))) - Math.log10(X_MIN)) / (Math.log10(X_MAX) - Math.log10(X_MIN))) * iw;
     const ly = (v: number) => padT + ih - ((Math.log10(Math.max(Y_MIN, Math.min(Y_MAX, v))) - Math.log10(Y_MIN)) / (Math.log10(Y_MAX) - Math.log10(Y_MIN))) * ih;
 
-    // log grid + tick labels
     ctx.font = "9px JetBrains Mono";
     ctx.strokeStyle = "rgba(148,163,184,0.08)";
     ctx.fillStyle = "#5b6675";
@@ -49,7 +44,6 @@ export default function SpoofingScatter({ frame }: { frame: FeedFrame }) {
     ctx.fillText("Order Size (lots) — log", 0, 0);
     ctx.restore();
 
-    // anomaly region: fast cancel (<1s) AND large (>1k lots)
     const ax0 = lx(X_MIN), ax1 = lx(1000), ay0 = ly(Y_MAX), ay1 = ly(1000);
     ctx.strokeStyle = "rgba(239,68,68,0.55)";
     ctx.fillStyle = "rgba(239,68,68,0.05)";
@@ -62,7 +56,6 @@ export default function SpoofingScatter({ frame }: { frame: FeedFrame }) {
     ctx.textAlign = "left";
     ctx.fillText("ANOMALY ZONE", ax0 + 6, ay0 + 12);
 
-    // points — newest brighter; risk class = score vs slider threshold
     for (const p of pts) {
       const age = Math.min(1, (now - p.t) / 30000);
       const alpha = 0.9 - age * 0.65;

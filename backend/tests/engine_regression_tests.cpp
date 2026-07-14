@@ -84,7 +84,6 @@ int main() {
     engine.run_from_benchmark({bid, ask, execution});
     if (emitted.find("\"executions\":[{") == std::string::npos) return 13;
     if (emitted.find("\"quantity\":40") == std::string::npos) return 14;
-    // A resting BUY was executed, so the aggressor is a SELL.
     if (emitted.find("\"side\":\"SELL\"") == std::string::npos) return 15;
     return 0;
 }

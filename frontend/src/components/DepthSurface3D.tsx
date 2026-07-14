@@ -1,9 +1,3 @@
-// ============================================================================
-// 3D Limit Order Book Depth Surface — time × price × volume (WebGL/Three.js).
-// Green bid mesh / red ask mesh meet at a magenta mid seam. Fully interactive:
-// orbit rotate, wheel zoom, right-drag pan, hover tooltip via raycasting,
-// Bids/Asks/Both toggle, depth 10/25/50, Reset View.
-// ============================================================================
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
@@ -37,7 +31,6 @@ export default function DepthSurface3D({ frame }: { frame: FeedFrame }) {
   const [hover, setHover] = useState<Hover | null>(null);
   const { windowMs, setFocusTime } = useSyncState();
 
-  // three.js singletons kept in a ref across renders
   const three = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
@@ -56,7 +49,6 @@ export default function DepthSurface3D({ frame }: { frame: FeedFrame }) {
   const setFocusTimeRef = useRef(setFocusTime);
   setFocusTimeRef.current = setFocusTime;
 
-  // ---- one-time scene setup ------------------------------------------------
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
@@ -102,9 +94,6 @@ export default function DepthSurface3D({ frame }: { frame: FeedFrame }) {
 
     let raf = 0;
     const loop = () => {
-      // self-heal: if the panel was laid out while the tab was hidden
-      // (rAF + ResizeObserver suspended), fix the drawing-buffer size on
-      // the first visible frame.
       const w = mount.clientWidth, h = mount.clientHeight;
       const size = renderer.getSize(new THREE.Vector2());
       if (w > 0 && h > 0 && (size.x !== w || size.y !== h)) resize();
@@ -114,7 +103,6 @@ export default function DepthSurface3D({ frame }: { frame: FeedFrame }) {
     };
     raf = requestAnimationFrame(loop);
 
-    // hover raycast → tooltip
     const onMove = (ev: PointerEvent) => {
       const s = three.current;
       if (!s || !s.mesh) return;
@@ -166,7 +154,6 @@ export default function DepthSurface3D({ frame }: { frame: FeedFrame }) {
     };
   }, []);
 
-  // ---- rebuild surface on new data / mode / depth ---------------------------
   const nSnaps = frame.snaps.length;
   useEffect(() => {
     const s = three.current;
@@ -249,12 +236,10 @@ export default function DepthSurface3D({ frame }: { frame: FeedFrame }) {
   );
 }
 
-// ---------------------------------------------------------------- helpers
 
 function lookupLevel(
   slice: HistSlice, mode: SideMode, depth: number, ci: number
 ): { price: number; vol: number; side: string } | null {
-  // column order: deepest bid → best bid → best ask → deepest ask (price ascending)
   if (mode === "both") {
     if (ci < depth) {
       const li = depth - 1 - ci;
@@ -297,7 +282,6 @@ function rebuild(
   }
   const C = mode === "both" ? depth * 2 : depth;
 
-  // normalization: robust max (98th pct-ish) so a single wall doesn't flatten all
   let maxV = 1;
   const all: number[] = [];
   for (const sl of s.hist) {
@@ -327,7 +311,6 @@ function rebuild(
       const isBid = mode === "bids" || (mode === "both" && ci < depth);
       if (isBid) tmp.lerpColors(cBidLo, cBidHi, Math.min(1, h));
       else tmp.lerpColors(cAskLo, cAskHi, Math.min(1, h));
-      // magenta seam at the touch
       if (mode === "both") {
         const distMid = Math.abs(ci - (depth - 0.5));
         if (distMid < 1.6) tmp.lerp(cMid, 0.55 * (1 - distMid / 1.6));

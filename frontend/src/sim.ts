@@ -1,18 +1,6 @@
-// ============================================================================
-// Simulated feed — produces Snapshots in the EXACT Exporter.hpp schema.
-// Used automatically when the C++ engine (ws://localhost:9001) is offline,
-// e.g. on native Windows where the POSIX backend cannot run. Clearly labelled
-// "SIM" in the UI. The dynamics are made financially coherent:
-//   • mid follows a mean-reverting random walk, OFI leads price moves
-//   • Hawkes λ is a true self-exciting process: jumps on event clusters,
-//     exponential decay e^{-β·Δt} between them (the staircase-then-glide)
-//   • book depth decays away from touch, with occasional liquidity walls
-//   • spoofing bursts inject large fast-cancelled orders
-// ============================================================================
 
 import type { BookLevel, Snapshot, SuspiciousOrder, Trade } from "./types";
 
-// Hawkes parameters (match backend defaults: mu=0.5, alpha=0.8, beta=1.0)
 const MU = 0.5;
 const ALPHA = 0.8;
 const BETA = 1.0;
@@ -46,28 +34,22 @@ export class Simulator {
     const dt = Math.min(1, (now - this.lastT) / 1000);
     this.lastT = now;
 
-    // regime: occasionally wind the market up into a frenzy, then relax
     if (Math.random() < 0.006) this.frenzy = Math.min(1, this.frenzy + 0.5 + Math.random() * 0.5);
     this.frenzy *= 0.995;
 
-    // Hawkes: decay, then self-excite on a Poisson-ish event count that rises
-    // with frenzy — clustered events compound α (staircase effect).
     this.lambda = MU + (this.lambda - MU) * Math.exp(-BETA * dt);
     const nEvents = Math.random() < 0.25 + this.frenzy * 0.6 ? Math.floor(Math.random() * (1 + this.frenzy * 5)) + 1 : 0;
     this.lambda += ALPHA * nEvents * (0.25 + Math.random() * 0.3);
     const critical = this.lambda > CRITICAL_LAMBDA;
 
-    // OFI leads price: persistent order-flow imbalance state
     this.ofiState = this.ofiState * 0.92 + (Math.random() - 0.5) * 900 + this.frenzy * (Math.random() - 0.35) * 1200;
     const ofi = this.ofiState;
 
-    // mid follows OFI + noise, mean-reverts to 15000
     this.mid += ofi * 0.0004 + (Math.random() - 0.5) * (0.8 + this.frenzy * 4) + (15000 - this.mid) * 0.001;
     const spread = Math.max(1, Math.round(1 + this.frenzy * 3 + Math.random() * 1.6));
     const bb = Math.round(this.mid - spread / 2);
     const ba = bb + spread;
 
-    // trades (aggressor side biased by OFI sign)
     const trades: Trade[] = [];
     const nTr = nEvents + (Math.random() < 0.5 ? 1 : 0);
     for (let i = 0; i < nTr; i++) {
@@ -80,7 +62,6 @@ export class Simulator {
     }
     const vwap = this.vwapV > 0 ? this.vwapPV / this.vwapV : this.mid;
 
-    // liquidity walls appear/expire
     const rollWall = (w: typeof this.wallBid): typeof this.wallBid => {
       if (w) { w.ttl -= 1; return w.ttl > 0 ? w : null; }
       return Math.random() < 0.01
@@ -90,7 +71,6 @@ export class Simulator {
     this.wallBid = rollWall(this.wallBid);
     this.wallAsk = rollWall(this.wallAsk);
 
-    // book depth: 50 levels/side, exponential decay from touch + noise + walls
     const mkSide = (touch: number, dir: 1 | -1, wall: typeof this.wallBid): BookLevel[] => {
       const out: BookLevel[] = [];
       for (let i = 0; i < 50; i++) {
@@ -104,10 +84,8 @@ export class Simulator {
     const bids = mkSide(bb, -1, this.wallBid);
     const asks = mkSide(ba, 1, this.wallAsk);
 
-    // market impact: walk the ask book with a 10,000-share buy (backend default)
     const impact = walkBook(asks, 10000);
 
-    // spoofing bursts
     const spoofing = this.frenzy > 0.35 && Math.random() < 0.35;
     const sus: SuspiciousOrder[] = [];
     if (spoofing) {
@@ -122,7 +100,6 @@ export class Simulator {
       }
     }
 
-    // slow PIN drift, flash-crash prob from λ + thinness
     this.pin = Math.max(0.05, Math.min(0.92, this.pin + (Math.random() - 0.5) * 0.015 + this.frenzy * 0.004));
     const flash = Math.max(0, Math.min(0.99, (this.lambda - MU) / (CRITICAL_LAMBDA * 1.4) + this.frenzy * 0.35));
 

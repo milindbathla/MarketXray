@@ -1,7 +1,3 @@
-// ============================================================================
-// Backend contract — mirrors src/Exporter.hpp snapshot_to_json() EXACTLY.
-// One JSON object per WebSocket message from ws://localhost:9001.
-// ============================================================================
 
 export type BookLevel = [price: number, volume: number];
 
@@ -65,9 +61,6 @@ export interface Snapshot {
   };
 }
 
-// ============================================================================
-// Frontend-local derived types
-// ============================================================================
 
 /** One time & sales print. Live mode uses backend execution messages; SIM mode
  *  generates equivalent prints locally. */

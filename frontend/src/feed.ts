@@ -1,12 +1,3 @@
-// ============================================================================
-// FeedStore — external store for the market scanner and selected-symbol drilldown.
-//
-// LIVE : WebSocket to the multi-symbol hub through Vite in development.
-// SIM  : local per-symbol simulators producing the same snapshot schema.
-//
-// Components re-render from one external store snapshot, while each symbol keeps
-// its own history buffers for charts and drilldown panels.
-// ============================================================================
 
 import { Simulator } from "./sim";
 import type { FeedStatus, Snapshot, SpoofPoint, Trade } from "./types";
@@ -19,8 +10,6 @@ export const BACKEND_URL = configuredBackendUrl
     : `${websocketProtocol}//${window.location.hostname}:9001`);
 const SIM_SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
 
-// Retain by market event time, not an arbitrary sample count. At a 10 ms
-// cadence, the old 900-snapshot cap discarded a 12 s chart's left edge.
 const HISTORY_WINDOW_MS = 30_000;
 const MAX_SNAPS = 5_000;
 const MAX_TRADES = 5_000;
@@ -170,8 +159,6 @@ class FeedStore {
   }
 
   private push(symbol: string, snapshot: Snapshot, trades: Trade[]): void {
-    // Live frames are already ordered by the gateway. Rendering them directly
-    // keeps every panel on the newest snapshot instead of replaying a queue.
     this.pushImmediate(symbol, snapshot, trades);
   }
 
@@ -222,12 +209,7 @@ class FeedStore {
   }
 
   private executionTrades(snapshot: Snapshot): Trade[] {
-    // Accept snapshots from an engine restarted before the executions field
-    // exists instead of dropping the entire live frame.
     const executions = Array.isArray(snapshot.executions) ? snapshot.executions : [];
-    // Snapshots are displayed on the ITCH time-of-day timeline, whereas each
-    // execution carries the source epoch timestamp. Normalize them before the
-    // tape/window filters see the trade.
     const sourceMs = (snapshot.source_timestamp_ns ?? snapshot.timestamp_ns) / 1e6;
     const epochOffsetMs = snapshot.timestamp_ns / 1e6 - sourceMs;
     return executions.map((execution) => ({
@@ -285,7 +267,6 @@ class FeedStore {
           this.bump();
         }
       } catch {
-        // skip malformed frame
       }
     };
 

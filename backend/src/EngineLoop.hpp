@@ -1,19 +1,5 @@
 #pragma once
 
-// =============================================================================
-// EngineLoop.hpp — Real-Time Event Loop Daemon
-// =============================================================================
-// This is the "brain" of MarketXray at runtime.
-// It continuously reads Ticks from the Shared Memory SPSC Queue,
-// dispatches them to all analytics engines, and emits JSON snapshots
-// at a configurable frequency for the frontend.
-//
-// Architecture:
-//   [Rust Ingestor] → SHM SPSC Queue → [EngineLoop] → JSON snapshots
-//                                            ↓
-//                              LimitOrderBook / Analytics /
-//                              Hawkes / PIN / Graph engines
-// =============================================================================
 
 #include "Types.hpp"
 #include "SharedMemory.hpp"
@@ -37,13 +23,8 @@ namespace mxray {
 static constexpr uint64_t ITCH_DATE_OFFSET_NS = 1'567'123'200'000'000'000ULL;
 static constexpr uint64_t MARKET_OPEN_NS = 34'200'000'000'000ULL; // 09:30:00 ET
 
-// Callback type: called every time a new JSON snapshot is ready.
-// The frontend integration (WebSocket, stdout, file, etc.) hooks into this.
 using SnapshotCallback = std::function<void(const std::string&)>;
 
-// =============================================================================
-// EngineConfig — Runtime tunable parameters
-// =============================================================================
 struct EngineConfig {
     size_t ofi_window          = 500;      // Rolling window for OFI
     size_t pin_window          = 1000;     // Rolling window for PIN
@@ -55,9 +36,6 @@ struct EngineConfig {
     bool   verbose             = false;    // Print debug info per-tick
 };
 
-// =============================================================================
-// EngineStats — Accumulated performance counters
-// =============================================================================
 struct EngineStats {
     uint64_t total_ticks       = 0;
     uint64_t total_adds        = 0;
@@ -80,9 +58,6 @@ struct EngineStats {
     }
 };
 
-// =============================================================================
-// EngineLoop — The Main Daemon
-// =============================================================================
 class EngineLoop {
 public:
     explicit EngineLoop(const EngineConfig& cfg = {})
@@ -94,17 +69,10 @@ public:
           running_(false)
     {}
 
-    // Register a callback for when a snapshot is ready.
-    // Can be called multiple times to add multiple sinks (stdout, WebSocket, file).
     void on_snapshot(SnapshotCallback cb) {
         callbacks_.push_back(std::move(cb));
     }
 
-    // ===========================================================================
-    // run_from_shared_memory()
-    // Attaches to the named shared memory region and processes ticks in real time.
-    // This runs FOREVER until stop() is called from another thread.
-    // ===========================================================================
     void run_from_shared_memory(const std::string& shm_name = SharedMemoryManager::DEFAULT_SHM_NAME) {
         std::cerr << "[Engine] Attaching to shared memory: " << shm_name << "\n";
         SharedMemoryManager shm(shm_name, true); // create = true (C++ owns the SHM region)
@@ -130,7 +98,6 @@ public:
                     emit_snapshot();
                 }
             }
-            // else: spin — no sleep, no mutex, no syscall. Pure busy-wait for minimum latency.
         }
 
         auto end = clock::now();
@@ -138,10 +105,6 @@ public:
             std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0;
     }
 
-    // ===========================================================================
-    // run_from_benchmark()
-    // Pumps ticks directly into the engine without shared memory (for testing).
-    // ===========================================================================
     void run_from_benchmark(const std::vector<Tick>& ticks) {
         running_.store(true, std::memory_order_relaxed);
 
@@ -164,7 +127,6 @@ public:
         running_.store(false, std::memory_order_relaxed);
     }
 
-    // Signal the event loop to stop (thread-safe)
     void stop() noexcept {
         running_.store(false, std::memory_order_release);
     }
@@ -174,10 +136,6 @@ public:
     const AnalyticsEngine& analytics() const noexcept { return analytics_; }
 
 private:
-    // ===========================================================================
-    // dispatch() — Routes a single tick to every engine
-    // This is the HOT PATH — must be as fast as possible.
-    // ===========================================================================
     void dispatch(const Tick& tick) {
         last_tick_ts_ns_ = tick.timestamp_ns;
 
@@ -186,7 +144,6 @@ private:
                 if (!lob_.add_order(tick)) break;
                 analytics_.process(tick, lob_);
                 spoof_.record_add(tick.order_id, tick.price, tick.quantity, tick.timestamp_ns);
-                // Track per-order ADD timestamp so CANCEL can compute lifetime_ms.
                 add_timestamps_[tick.order_id] = tick.timestamp_ns;
                 stats_.total_adds++;
                 break;
@@ -199,8 +156,6 @@ private:
                 analytics_.process(normalized, lob_);
                 auto alert = spoof_.check_cancel(
                     tick.order_id, tick.price, normalized.quantity, tick.timestamp_ns);
-                // Keep a bounded sample of cancellation signals for the
-                // scatter plot. Alert status still controls risk counters.
                 double lifetime_ms = 0.0;
                 if (auto timestamp = add_timestamps_.find(tick.order_id);
                     timestamp != add_timestamps_.end() && tick.timestamp_ns > timestamp->second) {
@@ -224,8 +179,6 @@ private:
                                   << " cancel_ratio=" << alert.cancel_ratio << "\n";
                     }
                 }
-                // Preserve the ADD timestamp across partial cancels; clear it only
-                // after the underlying order no longer exists in the book.
                 if (mutation.order_removed) add_timestamps_.erase(tick.order_id);
                 stats_.total_cancels++;
                 cancels_in_window_++;
@@ -260,9 +213,6 @@ private:
         }
     }
 
-    // ===========================================================================
-    // emit_snapshot() — Build and broadcast a JSON snapshot
-    // ===========================================================================
     void emit_snapshot() {
         uint64_t ts_now_ns = (last_tick_ts_ns_ != 0)
             ? last_tick_ts_ns_
@@ -272,7 +222,6 @@ private:
                 ).count());
 
 
-        // Export only regular-session data. ITCH timestamps are since midnight ET.
         if (ts_now_ns < ITCH_DATE_OFFSET_NS + MARKET_OPEN_NS) {
             spoof_alerts_in_window_ = 0;
             cancels_in_window_ = 0;
@@ -292,7 +241,6 @@ private:
         snap.best_ask                         = lob_.get_best_ask();
         snap.spread                           = analytics_.get_spread(lob_);
 
-        // Hawkes: pass timestamps in seconds (beta is calibrated per-second)
         double ts_now_s = static_cast<double>(ts_now_ns) * 1e-9;
         snap.hawkes_intensity                 = hawkes_.compute_intensity(ts_now_s);
         snap.hawkes_next_event_probability_1s = hawkes_.probability_next_event_within(ts_now_s, 1e9);
@@ -304,11 +252,9 @@ private:
         const auto asks = lob_.top_asks(200);
         const auto bids = lob_.top_bids(50);
 
-        // Flash crash: pass actual ask levels from the LOB (fixes always-0 bug)
         snap.flash_crash_probability          = graph_.compute_flash_crash_probability(
                                                     asks, lob_.get_best_ask(), 20);
 
-        // Market impact: simulate a 10,000-share market buy walking the ask side
         {
             auto impact = graph_.simulate_market_impact(
                 lob_, asks, 10000, Side::BUY);
@@ -318,22 +264,17 @@ private:
             snap.impact_levels_consumed = impact.levels_consumed;
         }
 
-        // Arbitrage: run Bellman-Ford on a snapshot of synthetic cross-asset rates.
-        // Uses VWAP-derived bid/ask ratios as a minimal 3-asset proxy.
         {
             double mid = (snap.best_bid > 0 && snap.best_ask > 0)
                 ? (snap.best_bid + snap.best_ask) * 0.5
                 : 1.0;
             double spread_frac = (mid > 0) ? snap.spread / mid : 0.0;
-            // Build a 3-node exchange-rate matrix: asset0=USD, asset1=ETH, asset2=BTC
-            // Rates are illustrative proxies keyed off live mid and spread.
             double r = (mid > 0) ? mid : 1.0;
             std::vector<std::vector<double>> rates = {
                 {1.000,        1.0 / r,       1.0 / (r * 15.0)},
                 {r,            1.000,          1.0 / 15.0      },
                 {r * 15.0,     15.0,           1.000           }
             };
-            // Apply the spread as a market friction (widens if spread is large)
             if (spread_frac > 0.0) {
                 for (int i = 0; i < 3; ++i)
                     for (int j = 0; j < 3; ++j)
@@ -345,13 +286,11 @@ private:
             snap.arbitrage_cycle          = std::move(arb.cycle);
         }
 
-        // Spoofing summary
         snap.spoofing_detected     = (spoof_alerts_in_window_ > 0);
         snap.spoofing_cancel_ratio = (cancels_in_window_ > 0)
                                         ? (double)spoof_alerts_in_window_ / cancels_in_window_
                                         : 0.0;
 
-        // Spoofing per-order list (collected in dispatch())
         snap.spoofing_orders.reserve(spoof_alerts_window_.size());
         for (const auto& a : spoof_alerts_window_) {
             snap.spoofing_orders.push_back({
@@ -368,7 +307,6 @@ private:
         std::string json = snapshot_to_json(snap);
         stats_.snapshots_emitted++;
 
-        // Broadcast to all registered sinks
         for (auto& cb : callbacks_) {
             cb(json);
         }
@@ -393,7 +331,6 @@ private:
     uint64_t            spoof_alerts_in_window_ = 0;
     uint64_t            cancels_in_window_ = 0;
 
-    // Per-snapshot window: scored cancellation signals with lifetime_ms.
     struct SpoofAlertEntry {
         uint32_t price;
         uint64_t quantity;
@@ -403,7 +340,6 @@ private:
     std::vector<SpoofAlertEntry> spoof_alerts_window_;
     std::vector<EngineSnapshot::ExecutionEntry> executions_window_;
 
-    // ADD timestamp map for computing lifetime_ms on cancel events
     std::unordered_map<uint64_t, uint64_t> add_timestamps_;
 
     std::vector<SnapshotCallback> callbacks_;

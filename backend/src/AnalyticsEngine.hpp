@@ -12,8 +12,6 @@
 
 namespace mxray {
 
-// Rolling window metrics for OFI and VWAP using circular buffers.
-// All computations are designed for constant-time updates.
 class AnalyticsEngine {
 public:
     explicit AnalyticsEngine(size_t window_size = 500)
@@ -22,16 +20,8 @@ public:
           vwap_volume_(0),
           vwap_notional_(0.0),
           total_trade_count_(0) {
-        // No reservation needed: deque grows from both ends in O(1)
     }
 
-    // -------------------------------------------------------------------
-    // OFI: Order Flow Imbalance
-    // OFI measures the net order flow pressure.
-    // OFI = sum( delta_bid_size - delta_ask_size ) over a rolling window.
-    // A strongly positive OFI → imminent price rise.
-    // A strongly negative OFI → imminent price fall.
-    // -------------------------------------------------------------------
     void update_ofi(const LimitOrderBook& lob) {
         const uint32_t curr_bid_px = lob.get_best_bid();
         const uint32_t curr_ask_px = lob.get_best_ask();
@@ -54,7 +44,6 @@ public:
         if (curr_ask_px >= prev_best_ask_px_) delta += prev_best_ask_sz_;
 
         if (ofi_buffer_.size() == ofi_window_size_) {
-            // O(1) pop_front on deque (was O(N) erase on vector — fixed)
             ofi_sum_ -= ofi_buffer_.front();
             ofi_buffer_.pop_front();
         }
@@ -72,19 +61,12 @@ public:
         return static_cast<double>(ofi_sum_);
     }
 
-    // Normalized OFI in range [-1, 1]
     double get_ofi_normalized() const noexcept {
         double max_possible = (double)ofi_window_size_ * 1e7; // rough normalization
         if (max_possible == 0) return 0.0;
         return std::clamp(get_ofi() / max_possible, -1.0, 1.0);
     }
 
-    // -------------------------------------------------------------------
-    // VWAP: Volume-Weighted Average Price
-    // The "true" average price weighted by volume. Tracks where large
-    // institutions are actually transacting.
-    // VWAP = sum(price_i * volume_i) / sum(volume_i)
-    // -------------------------------------------------------------------
     void update_vwap(uint32_t price, uint32_t quantity) {
         if (price == 0 || quantity == 0) return;
 
@@ -106,9 +88,6 @@ public:
         return vwap_notional_ / vwap_volume_;
     }
 
-    // -------------------------------------------------------------------
-    // Bid-Ask Spread
-    // -------------------------------------------------------------------
     double get_spread(const LimitOrderBook& lob) const noexcept {
         const int64_t ask = static_cast<int64_t>(lob.get_best_ask());
         const int64_t bid = static_cast<int64_t>(lob.get_best_bid());
@@ -120,7 +99,6 @@ public:
 
     uint64_t total_trade_count() const noexcept { return total_trade_count_; }
 
-    // Process a tick: route it to OFI and VWAP
     void process(const Tick& tick, const LimitOrderBook& lob) {
         update_ofi(lob);
         if (tick.type == OrderType::EXECUTE) {

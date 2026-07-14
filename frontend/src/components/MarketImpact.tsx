@@ -1,7 +1,3 @@
-// Market Impact + Volume — walks the CURRENT ask book with a user-selected
-// order size (client-side recompute of the engine's simulate_market_impact):
-// red cumulative-slippage line, blue fill-size bars per level, mid marker,
-// slippage callout, and footer stats.
 
 import { useMemo, useState } from "react";
 import type { FeedFrame } from "../feed";
@@ -46,7 +42,6 @@ export default function MarketImpact({ frame }: { frame: FeedFrame }) {
     const yBar = (v: number) => (v / maxTake) * ih * 0.55;
     const ySlip = (v: number) => padT + ih - (v / maxSlip) * ih * 0.88;
 
-    // fill-size bars
     const bw = Math.max(2, (iw / n) * 0.6);
     ctx.fillStyle = "rgba(47,217,244,0.30)";
     for (let i = 0; i < n; i++) {
@@ -54,7 +49,6 @@ export default function MarketImpact({ frame }: { frame: FeedFrame }) {
       ctx.fillRect(x(i) - bw / 2, padT + ih - bh, bw, bh);
     }
 
-    // cumulative slippage line
     ctx.strokeStyle = "#ef4444";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -68,7 +62,6 @@ export default function MarketImpact({ frame }: { frame: FeedFrame }) {
       ctx.beginPath(); ctx.arc(x(i), ySlip(fills[i].cumSlip), 2.2, 0, Math.PI * 2); ctx.fill();
     }
 
-    // axes
     ctx.fillStyle = "#5b6675";
     ctx.font = "9px JetBrains Mono";
     ctx.textAlign = "left";
@@ -79,7 +72,6 @@ export default function MarketImpact({ frame }: { frame: FeedFrame }) {
     ctx.textAlign = "left";
     ctx.fillText(`${(maxTake / 1000).toFixed(1)}K`, padL + iw + 4, padT + ih - yBar(maxTake) + 8);
 
-    // slippage callout at the end of the walk
     const lastF = fills[n - 1];
     const cy = ySlip(lastF.cumSlip);
     ctx.strokeStyle = "rgba(239,68,68,0.8)";

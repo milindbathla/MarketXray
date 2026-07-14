@@ -12,12 +12,10 @@
 
 namespace mxray {
 
-// Snapshot of all metrics at a point in time
 struct EngineSnapshot {
     uint64_t timestamp_ns;
     uint64_t source_timestamp_ns;
     
-    // Microstructure
     double ofi;
     double ofi_normalized;
     double vwap;
@@ -25,28 +23,23 @@ struct EngineSnapshot {
     uint32_t best_ask;
     double spread;
     
-    // Hawkes process
     double hawkes_intensity;
     double hawkes_next_event_probability_1s;
     bool hawkes_critical;
 
-    // PIN
     double pin_score;
     const char* pin_level;
     
-    // Market impact (simulated 10,000-share market buy)
     double impact_avg_fill_price;
     double impact_slippage_bps;
     bool impact_fully_filled;
     uint32_t impact_levels_consumed;
 
-    // Graph / Risk
     double flash_crash_probability;
     bool arbitrage_opportunity;
     double arbitrage_profit_factor;
     std::vector<int> arbitrage_cycle;   // asset index path of the detected cycle
 
-    // Spoofing — summary + scored cancellation signals for the scatter plot
     bool spoofing_detected;
     double spoofing_cancel_ratio;
     struct SpoofingEntry {
@@ -57,7 +50,6 @@ struct EngineSnapshot {
     };
     std::vector<SpoofingEntry> spoofing_orders;
 
-    // Actual executions observed since the previous snapshot.
     struct ExecutionEntry {
         uint64_t timestamp_ns;
         uint32_t price;
@@ -66,7 +58,6 @@ struct EngineSnapshot {
     };
     std::vector<ExecutionEntry> executions;
 
-    // Limit Order Book depth (top 50 non-empty levels per side)
     struct BookLevel {
         uint32_t price;
         uint64_t volume;
@@ -75,10 +66,6 @@ struct EngineSnapshot {
     std::vector<BookLevel> book_asks;
 };
 
-// =============================================================================
-// JSON SERIALIZER — for streaming metrics to the React frontend
-// Outputs a compact JSON string suitable for WebSocket transmission.
-// =============================================================================
 inline std::string snapshot_to_json(const EngineSnapshot& s) {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);

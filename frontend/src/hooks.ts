@@ -48,13 +48,10 @@ export function useCanvas(
     });
   };
 
-  // Run before paint so the previous chart is never visibly cleared.
   useLayoutEffect(() => {
     scheduleRender();
   }, [dep]);
 
-  // The observer is intentionally retained across stream updates. Recreating it
-  // for every tick was unnecessary work and made charts appear to refresh.
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;

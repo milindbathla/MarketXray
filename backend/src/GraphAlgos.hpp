@@ -13,13 +13,6 @@
 
 namespace mxray {
 
-// =============================================================================
-// MARKET IMPACT SIMULATOR — "Walk the Book"
-// =============================================================================
-// Simulates what price you would actually get if you tried to execute a large
-// market order right NOW against the existing order book.
-// The impact = the slippage between the best bid/ask and the average fill price.
-// =============================================================================
 struct MarketImpactResult {
     double average_fill_price;    // Average price of all fills
     double slippage_bps;          // Slippage in basis points (1 bps = 0.01%)
@@ -28,17 +21,6 @@ struct MarketImpactResult {
     bool fully_filled;            // Did we get the full order filled?
 };
 
-// =============================================================================
-// LIQUIDITY CONTAGION GRAPH — Flash Crash Predictor
-// =============================================================================
-// Models each price level as a node and the volume at each level as the node weight.
-// "Contagion" = if top-of-book volume is very thin, cancellations at the top
-// can cascade and propagate through the graph, causing a flash crash.
-//
-// We detect this via a "Centrality Deficit" score:
-//   - High liquidity at many levels  → low crash risk
-//   - Thin top, heavy tail            → high crash risk
-// =============================================================================
 struct GraphNode {
     uint32_t price;
     uint64_t volume;
@@ -47,7 +29,6 @@ struct GraphNode {
 
 class GraphEngine {
 public:
-    // Walk the book to compute market impact for a hypothetical order of 'qty' shares
     MarketImpactResult simulate_market_impact(
         const LimitOrderBook& lob,
         const std::vector<PriceLevel>& levels, // pass bids for SELL, asks for BUY
@@ -78,7 +59,6 @@ public:
         if (result.total_qty_filled > 0) {
             result.average_fill_price = notional_filled / result.total_qty_filled;
 
-            // Slippage in bps = |fill_price - best_price| / best_price * 10000
             if (best_price > 0) {
                 result.slippage_bps = std::abs(result.average_fill_price - best_price) 
                                       / (double)best_price * 10000.0;
@@ -88,12 +68,6 @@ public:
         return result;
     }
 
-    // =============================================================================
-    // FLASH CRASH PROBABILITY SCORING
-    // Uses a lightweight Liquidity Contagion model:
-    //   score = 1 - (top_10_volume / total_volume)^0.5
-    // If the top 10 levels are thin relative to total book depth, crash risk is high.
-    // =============================================================================
     double compute_flash_crash_probability(
         const std::vector<PriceLevel>& ask_levels,
         uint32_t best_ask,
@@ -111,16 +85,9 @@ public:
         if (total_volume == 0) return 0.0;
         double ratio = (double)top_volume / (double)total_volume;
         
-        // Low ratio = thin top of book = high crash risk
         return std::clamp(1.0 - std::sqrt(ratio), 0.0, 1.0);
     }
 
-    // =============================================================================
-    // BELLMAN-FORD NEGATIVE CYCLE DETECTION — Triangular Arbitrage
-    // Detects if a profitable cycle exists across N assets.
-    // edge_weight[i][j] = -log(exchange_rate[i][j])
-    // If there's a negative cycle, it means a "free money" arbitrage path exists.
-    // =============================================================================
     struct ArbitrageResult {
         bool opportunity_found;
         std::vector<int> cycle;   // Indices of the arbitrage cycle
@@ -133,7 +100,6 @@ public:
         
         ArbitrageResult result{false, {}, 1.0};
 
-        // Convert to log-space for additive path-finding
         std::vector<std::vector<double>> w(n_assets, std::vector<double>(n_assets, 1e9));
         for (int i = 0; i < n_assets; ++i) {
             for (int j = 0; j < n_assets; ++j) {
@@ -143,7 +109,6 @@ public:
             }
         }
 
-        // Standard Bellman-Ford from source node 0
         std::vector<double> dist(n_assets, 0.0); // Start from "all 0" to detect any cycle
         std::vector<int> pred(n_assets, -1);
 
@@ -158,12 +123,9 @@ public:
             }
         }
 
-        // N-th iteration: if we can still relax, there's a negative cycle
         for (int u = 0; u < n_assets; ++u) {
             for (int v = 0; v < n_assets; ++v) {
                 if (w[u][v] < 1e9 && dist[u] + w[u][v] < dist[v]) {
-                    // Walk back N steps to ensure we are inside the cycle, then
-                    // collect the cycle in forward trading order.
                     result.opportunity_found = true;
                     int curr = v;
                     for (int step = 0; step < n_assets && curr != -1; ++step) {
@@ -184,7 +146,6 @@ public:
                     std::reverse(result.cycle.begin(), result.cycle.end());
                     result.cycle.push_back(result.cycle.front()); // close the cycle
 
-                    // Compute profit factor
                     result.profit_factor = 1.0;
                     for (size_t k = 0; k + 1 < result.cycle.size(); ++k) {
                         int a = result.cycle[k];
@@ -201,13 +162,6 @@ public:
     }
 };
 
-// =============================================================================
-// SPOOFING / LAYERING DETECTOR
-// =============================================================================
-// Real spoofing pattern: large orders appear at multiple price levels to
-// create the illusion of depth, then all get canceled just before execution.
-// We detect this by tracking: large ADD followed by fast CANCEL at same price cluster.
-// =============================================================================
 struct SpoofingAlert {
     uint64_t suspected_order_id;
     uint32_t price;
@@ -219,12 +173,7 @@ struct SpoofingAlert {
 class SpoofingDetector {
 public:
     explicit SpoofingDetector(size_t window_ns = 500000000ULL, // 500ms
-                               // BUG FIX: 0.85 fires constantly on real NASDAQ data where
-                               // 95-99% of orders are legitimately cancelled (market making).
-                               // 0.98 targets only extreme cancel-dominated clusters.
                                double cancel_ratio_threshold = 0.98,
-                               // BUG FIX: 5000 shares is too small to filter noise;
-                               // raise to 50000 to require meaningful order volume.
                                uint32_t min_quantity = 50000)
         : window_ns_(window_ns),
           threshold_(cancel_ratio_threshold),
@@ -308,13 +257,10 @@ private:
     };
 
     ClusterKey price_cluster(uint32_t price) const noexcept {
-        // Cluster prices into buckets of 50 ticks
         return (price / 50) * 50;
     }
 
     void evict_old(ClusterKey key, uint64_t current_ts) {
-        // Suppress unused-parameter warning; time-based eviction is a prod enhancement.
-        // Current implementation uses count-based decay for simplicity.
         (void)current_ts;
         auto cluster_it = clusters_.find(key);
         if (cluster_it == clusters_.end()) return;

@@ -4,8 +4,6 @@
 
 namespace mxray {
 
-// Aligning to 64 bytes (cache line) to prevent false sharing in IPC
-// and ensuring strict layout compatibility with Rust #[repr(C)].
 
 enum class Side : uint8_t {
     BUY = 1,
@@ -18,10 +16,6 @@ enum class OrderType : uint8_t {
     EXECUTE = 3
 };
 
-// Represents an incoming tick from Rust via Shared Memory.
-// #pragma pack(1) ensures no implicit struct padding (Rust ABI compatibility).
-// alignas(64) places the struct on its own cache line to prevent false sharing.
-// Total size: 8+8+4+4+1+1+1+37 padding = exactly 64 bytes.
 #pragma pack(push, 1)
 struct alignas(64) Tick {
     uint64_t timestamp_ns; // Nanosecond precision timestamp
@@ -35,7 +29,6 @@ struct alignas(64) Tick {
 };
 #pragma pack(pop)
 
-// An Order Node inside our Limit Order Book
 struct OrderNode {
     uint64_t order_id;
     uint32_t price;
@@ -46,7 +39,6 @@ struct OrderNode {
     OrderNode* prev;
 };
 
-// A Price Level in our Order Book
 struct PriceLevel {
     uint32_t price;
     uint64_t total_volume;

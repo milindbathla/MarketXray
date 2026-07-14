@@ -1,10 +1,5 @@
-/* ============================================================================
-   MarketXray design system — from DESIGN.md (Stitch tokens)
-   Dark terminal: data is the hero. Tonal layering, glass edges, no shadows.
-   ========================================================================== */
 
 :root {
-  /* surfaces */
   --app-bg: #0a0e17;
   --surface-lowest: #010f1f;
   --surface-low: #0d1c2d;
@@ -13,7 +8,6 @@
   --surface-highest: #273647;
   --panel-raised: #131b2a;
 
-  /* semantic */
   --primary: #2fd9f4;
   --primary-soft: #8aebff;
   --bull: #22c55e;
@@ -24,7 +18,6 @@
   --amber-deep: #f59e0b;
   --magenta: #a855f7;
 
-  /* text */
   --text: #e6edf3;
   --text-2: #94a3b8;
   --text-muted: #5b6675;
@@ -59,7 +52,6 @@ body {
   user-select: none;
 }
 
-/* ---------------------------------------------------------------- layout */
 .app { height: 100%; display: flex; flex-direction: column; }
 
 .main {
@@ -89,7 +81,6 @@ body {
 .cell-impact    { grid-column: 7 / 10; grid-row: 2; }
 .cell-spoof     { grid-column: 10 / 13; grid-row: 2; }
 
-/* ---------------------------------------------------------------- panels */
 .panel {
   background: var(--surface-low);
   border: 1px solid var(--border);
@@ -132,7 +123,6 @@ body {
 
 .panel-controls { display: flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 8px; }
 
-/* controls */
 .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .seg button {
   background: transparent;
@@ -172,7 +162,6 @@ body {
 
 .range { accent-color: var(--bear); width: 90px; height: 3px; cursor: pointer; }
 
-/* ---------------------------------------------------------------- topbar */
 .topbar {
   min-height: 52px;
   flex-shrink: 0;
@@ -235,7 +224,6 @@ body {
 .icon-btn { background: none; border: none; color: var(--text-2); cursor: pointer; padding: 0; display: flex; align-items: center; }
 .icon-btn:hover { color: var(--primary); }
 
-/* settings dropdown */
 .settings-pop {
   position: absolute;
   top: 44px;
@@ -253,7 +241,6 @@ body {
 .settings-pop h4 { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
 .settings-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-2); }
 
-/* dots */
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .dot.green { background: var(--bull); }
 .dot.red { background: var(--bear); }
@@ -264,8 +251,7 @@ body {
   .dot.pulse { animation: none; }
 }
 
-/* ---------------------------------------------------------------- KPI strip */
-.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; flex-shrink: 0; }
+.kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; flex-shrink: 0; }
 
 .kpi {
   background: var(--surface-low);
@@ -306,7 +292,6 @@ body {
 .c-text { color: var(--text); }
 .c-muted { color: var(--text-muted); }
 
-/* ---------------------------------------------------------------- scanner */
 .scanner { min-height: 182px; }
 .scanner-strip {
   display: flex;
@@ -468,7 +453,6 @@ body {
 }
 .scanner-heat.active { min-height: 52px; }
 
-/* ---------------------------------------------------------------- tape */
 .tape-wrap { overflow-y: auto; height: 100%; }
 .tape-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; }
 .tape-table thead { position: sticky; top: 0; background: var(--surface-low); z-index: 5; }
@@ -493,7 +477,6 @@ body {
 @keyframes rowbuy { from { background: rgba(34, 197, 94, 0.18); } to { background: transparent; } }
 @keyframes rowsell { from { background: rgba(239, 68, 68, 0.18); } to { background: transparent; } }
 
-/* ---------------------------------------------------------------- charts */
 .chart-abs { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 .legend { display: flex; gap: 14px; align-items: center; font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
@@ -506,8 +489,6 @@ body {
 .overlay-br { position: absolute; bottom: 8px; right: 12px; z-index: 4; }
 .overlay-bc { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); z-index: 4; }
 
-/* Chip backdrop for overlays that sit on top of chart lines — keeps text
-   readable instead of colliding with the series underneath. */
 .overlay-chip {
   background: rgba(8, 14, 26, 0.82);
   border: 1px solid rgba(148, 163, 184, 0.16);
@@ -560,7 +541,6 @@ body {
 }
 .tooltip .k { color: var(--text-muted); margin-right: 6px; }
 
-/* ---------------------------------------------------------------- footer */
 .statusbar {
   height: 36px;
   flex-shrink: 0;
@@ -583,12 +563,10 @@ body {
 .buffer-bar { width: 80px; height: 5px; background: var(--surface-high); border-radius: 999px; overflow: hidden; }
 .buffer-bar div { height: 100%; background: var(--primary); border-radius: 999px; transition: width 0.25s; }
 
-/* scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-highest); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* responsive fallback: stack on narrow screens */
 @media (max-width: 1180px) {
   body { overflow: hidden; }
   .app { height: 100%; }

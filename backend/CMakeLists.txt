@@ -7,9 +7,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ---------------------------------------------------------------
-# HFT Optimization Flags
-# ---------------------------------------------------------------
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(
         -O3              # Maximum optimization
@@ -28,23 +25,12 @@ elseif(MSVC)
     add_link_options(/LTCG)
 endif()
 
-# ---------------------------------------------------------------
-# Include Directories
-# ---------------------------------------------------------------
 include_directories(src)
 
-# ---------------------------------------------------------------
-# Main Engine Executable (stdout / benchmark)
-# ---------------------------------------------------------------
 add_executable(market_xray
     src/main.cpp
 )
 
-# ---------------------------------------------------------------
-# WebSocket Broadcaster (separate entry point — src/main_ws.cpp)
-# Streams JSON snapshots over WebSocket instead of stdout.
-# Connect any browser / dashboard to ws://localhost:9001
-# ---------------------------------------------------------------
 add_executable(market_xray_ws
     src/main_ws.cpp
 )
@@ -56,10 +42,6 @@ if(BUILD_TESTING)
     add_test(NAME engine_regression_tests COMMAND engine_regression_tests)
 endif()
 
-# ---------------------------------------------------------------
-# Windows: kernel32 for CreateFileMapping/MapViewOfFile (Shared Memory)
-# Linux:   rt for shm_open/mmap, pthread for threading
-# ---------------------------------------------------------------
 if(WIN32)
     target_link_libraries(market_xray    PRIVATE kernel32)
     target_link_libraries(market_xray_ws PRIVATE kernel32 ws2_32)
@@ -70,28 +52,3 @@ elseif(UNIX)
         target_link_libraries(engine_regression_tests PRIVATE rt pthread)
     endif()
 endif()
-
-# ---------------------------------------------------------------
-# OPTIONAL: Eigen3 (SIMD-accelerated math, e.g., for advanced OFI)
-#   Windows: vcpkg install eigen3
-#   Linux:   sudo apt-get install libeigen3-dev
-# ---------------------------------------------------------------
-# find_package(Eigen3 3.4 REQUIRED)
-# target_link_libraries(market_xray PRIVATE Eigen3::Eigen)
-
-# ---------------------------------------------------------------
-# Build & Run Instructions:
-#
-#   mkdir build && cd build
-#   cmake .. -DCMAKE_BUILD_TYPE=Release
-#   cmake --build . --config Release
-#
-#   Benchmark mode (no Rust needed, pure speed test):
-#     .\Release\market_xray.exe --benchmark        (Windows)
-#     ./market_xray --benchmark                    (Linux)
-#
-#   Daemon mode (Rust ingestor must be running first):
-#     .\Release\market_xray.exe --daemon           (Windows)
-#     ./market_xray --daemon                       (Linux)
-#     ./market_xray --daemon --shm /marketxray_shm (custom SHM name)
-# ---------------------------------------------------------------

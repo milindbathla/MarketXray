@@ -1,20 +1,5 @@
 #pragma once
 
-// =============================================================================
-// WebSocketServer.hpp — Minimal RFC 6455 WebSocket Broadcast Server
-// =============================================================================
-// Self-contained: SHA-1, Base64, HTTP upgrade handshake, frame encoding.
-// Zero external dependencies — pure POSIX sockets + C++20.
-//
-// Designed for broadcast-only use: the engine pushes JSON snapshots in,
-// every connected client receives them. Client → server frames are ignored.
-//
-// Usage:
-//   WebSocketServer ws(9001);
-//   ws.start();
-//   ws.broadcast(json_string);   // thread-safe, called from any thread
-//   ws.stop();
-// =============================================================================
 
 #include <algorithm>
 #include <atomic>
@@ -47,7 +32,6 @@
 
 namespace mxray {
 
-// Winsock/POSIX portability shims — the rest of the file uses POSIX idioms.
 #ifdef _WIN32
 using socket_t = SOCKET;
 using ssz_t    = int; // recv/send return int on Winsock
@@ -55,7 +39,6 @@ static const socket_t INVALID_SOCK = INVALID_SOCKET;
 inline int  close_socket(socket_t s) { return ::closesocket(s); }
 inline bool send_would_block()       { return WSAGetLastError() == WSAEWOULDBLOCK; }
 inline void set_nonblocking_fd(socket_t s) { u_long m = 1; ::ioctlsocket(s, FIONBIO, &m); }
-// One-time Winsock init — WSAStartup must precede any socket call.
 inline void ensure_sockets_initialized() {
     struct WinsockInit {
         WinsockInit()  { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); }
@@ -76,10 +59,6 @@ inline void set_nonblocking_fd(socket_t s) {
 inline void ensure_sockets_initialized() {}
 #endif
 
-// =============================================================================
-// Internal helpers — SHA-1 (FIPS 180-4) and Base64
-// Required for the Sec-WebSocket-Accept key derivation (RFC 6455 §4.2.2)
-// =============================================================================
 namespace ws_detail {
 
 inline void sha1(const uint8_t* data, size_t len, uint8_t out[20]) {
@@ -89,7 +68,6 @@ inline void sha1(const uint8_t* data, size_t len, uint8_t out[20]) {
     uint32_t h3 = 0x10325476u;
     uint32_t h4 = 0xC3D2E1F0u;
 
-    // Pad message to multiple of 64 bytes: append 0x80, zeros, 64-bit length
     size_t padded = ((len + 8) / 64 + 1) * 64;
     std::vector<uint8_t> msg(padded, 0);
     std::memcpy(msg.data(), data, len);
@@ -152,7 +130,6 @@ inline std::string base64_encode(const uint8_t* data, size_t len) {
     return out;
 }
 
-// Build a WebSocket text frame (server→client, no masking per RFC 6455 §6.1)
 inline std::string text_frame(const std::string& payload) {
     std::string frame;
     frame.reserve(payload.size() + 10);
@@ -176,9 +153,6 @@ inline std::string text_frame(const std::string& payload) {
 
 } // namespace ws_detail
 
-// =============================================================================
-// WebSocketServer
-// =============================================================================
 class WebSocketServer {
 public:
     explicit WebSocketServer(uint16_t port = 9001)
@@ -186,14 +160,9 @@ public:
 
     ~WebSocketServer() { stop(); }
 
-    // Non-copyable / non-movable — owns OS handle + thread
     WebSocketServer(const WebSocketServer&)            = delete;
     WebSocketServer& operator=(const WebSocketServer&) = delete;
 
-    // -------------------------------------------------------------------------
-    // start() — bind, listen, launch event-loop thread
-    // Returns true on success.
-    // -------------------------------------------------------------------------
     bool start() {
         ensure_sockets_initialized();
         server_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -227,9 +196,6 @@ public:
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // stop() — graceful shutdown, closes all clients, joins thread
-    // -------------------------------------------------------------------------
     void stop() {
         running_.store(false, std::memory_order_relaxed);
         if (loop_thread_.joinable()) loop_thread_.join();
@@ -239,9 +205,6 @@ public:
         }
     }
 
-    // -------------------------------------------------------------------------
-    // broadcast() — thread-safe, send JSON to every connected client
-    // -------------------------------------------------------------------------
     void broadcast(const std::string& json) {
         if (json.empty()) return;
         const std::string frame = ws_detail::text_frame(json);
@@ -267,9 +230,6 @@ public:
     uint16_t port() const noexcept { return port_; }
 
 private:
-    // -------------------------------------------------------------------------
-    // Per-client state
-    // -------------------------------------------------------------------------
     struct Client {
         socket_t    fd             = INVALID_SOCK;
         bool        handshake_done = false;
@@ -278,17 +238,11 @@ private:
         explicit Client(socket_t fd_) : fd(fd_) {}
     };
 
-    // -------------------------------------------------------------------------
-    // event_loop() — runs in loop_thread_
-    // Uses select() to multiplex the server socket and all client sockets.
-    // -------------------------------------------------------------------------
     void event_loop() {
         while (running_.load(std::memory_order_relaxed)) {
             fd_set rfds;
             FD_ZERO(&rfds);
             FD_SET(server_fd_, &rfds);
-            // On Winsock the first select() argument is ignored; on POSIX it
-            // must be the highest fd + 1.
             int maxfd = static_cast<int>(server_fd_);
 
             {
@@ -303,7 +257,6 @@ private:
             int ready = ::select(maxfd + 1, &rfds, nullptr, nullptr, &tv);
             if (ready <= 0) continue;
 
-            // Accept new TCP connections
             if (FD_ISSET(server_fd_, &rfds)) {
                 sockaddr_in cli{};
                 socklen_t cli_len = sizeof(cli);
@@ -318,7 +271,6 @@ private:
                 }
             }
 
-            // Service existing clients
             std::lock_guard<std::mutex> lk(clients_mutex_);
             for (auto it = clients_.begin(); it != clients_.end(); ) {
                 if (!FD_ISSET(it->fd, &rfds)) { ++it; continue; }
@@ -335,7 +287,6 @@ private:
                 it->recv_buf.append(tmp, static_cast<size_t>(n));
 
                 if (!it->handshake_done) {
-                    // Wait for the full HTTP request (ends with \r\n\r\n)
                     if (it->recv_buf.find("\r\n\r\n") != std::string::npos) {
                         std::string response = build_handshake_response(it->recv_buf);
                         if (!response.empty()) {
@@ -349,7 +300,6 @@ private:
                             std::cout << "[WS] Handshake complete — client "
                                       << it->fd << " is ready\n";
                         } else {
-                            // Bad request — reject
                             const char* bad = "HTTP/1.1 400 Bad Request\r\n\r\n";
                             send_all_nonblocking(it->fd, bad, strlen(bad));
                             close_socket(it->fd);
@@ -358,22 +308,16 @@ private:
                         }
                     }
                 }
-                // We intentionally ignore client→server frames (broadcast-only server).
                 ++it;
             }
         }
 
-        // Clean up all remaining clients on shutdown
         std::lock_guard<std::mutex> lk(clients_mutex_);
         for (auto& c : clients_) close_socket(c.fd);
         clients_.clear();
     }
 
-    // -------------------------------------------------------------------------
-    // build_handshake_response() — RFC 6455 §4.2.2 upgrade response
-    // -------------------------------------------------------------------------
     static std::string build_handshake_response(const std::string& request) {
-        // Find Sec-WebSocket-Key header
         auto pos = request.find("Sec-WebSocket-Key:");
         if (pos == std::string::npos) return {};
         pos += 18;
@@ -382,7 +326,6 @@ private:
         if (end == std::string::npos) return {};
 
         const std::string key    = request.substr(pos, end - pos);
-        // Strip any trailing whitespace/CR
         const std::string combined = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
         uint8_t hash[20];
@@ -423,9 +366,6 @@ private:
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // Members
-    // -------------------------------------------------------------------------
     uint16_t              port_;
     socket_t              server_fd_;
     std::atomic<bool>     running_;

@@ -10,7 +10,6 @@
 
 namespace mxray {
 
-// Sparse price levels avoid allocating two million slots for every symbol.
 class LimitOrderBook {
 public:
     static constexpr uint32_t MAX_PRICE_TICKS = 1'000'000;
@@ -33,7 +32,6 @@ public:
         if (tick.price < MIN_VALID_PRICE || tick.price >= MAX_PRICE_TICKS || tick.quantity == 0) {
             return false;
         }
-        // Reusing an order id would orphan its existing price-time node.
         if (order_map_.contains(tick.order_id)) return false;
 
         OrderNode* node = order_pool_.allocate();

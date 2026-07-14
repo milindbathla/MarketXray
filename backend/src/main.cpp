@@ -1,15 +1,3 @@
-// =============================================================================
-// main.cpp — MarketXray C++ Analytics Engine
-// =============================================================================
-// Supports two modes:
-//   --benchmark   : pump 1M mock ticks and report performance metrics
-//   --daemon      : attach to shared memory and run forever (live trading mode)
-//
-// Usage:
-//   ./market_xray --benchmark
-//   ./market_xray --daemon
-//   ./market_xray --daemon --shm /marketxray_shm
-// =============================================================================
 
 #include "EngineLoop.hpp"
 #include "SharedMemory.hpp"
@@ -31,9 +19,6 @@
 using namespace mxray;
 using namespace std::chrono;
 
-// ============================================================================
-// Global running flag — set to false by SIGINT/SIGTERM for clean shutdown
-// ============================================================================
 static std::atomic<bool> g_running{true};
 static EngineLoop* g_engine_ptr = nullptr;
 
@@ -43,10 +28,6 @@ void signal_handler(int) {
     if (g_engine_ptr) g_engine_ptr->stop();
 }
 
-// ============================================================================
-// Mock tick generator — for benchmark mode only
-// Distributions constructed ONCE (BUG FIX from audit).
-// ============================================================================
 struct TickDist {
     std::uniform_int_distribution<uint32_t> bid_price{10000, 14999};
     std::uniform_int_distribution<uint32_t> ask_price{15001, 20000};
@@ -72,9 +53,6 @@ void print_sep() {
     std::cout << "\n" << std::string(70, '=') << "\n";
 }
 
-// ============================================================================
-// BENCHMARK MODE
-// ============================================================================
 void run_benchmark() {
     std::cout << R"(
   __  __            _        _    __  __
@@ -104,7 +82,6 @@ void run_benchmark() {
 
     EngineLoop engine(cfg);
 
-    // Register stdout sink for snapshots
     engine.on_snapshot([](const std::string& json) {
         std::cout << "[SNAPSHOT] " << json.substr(0, 120) << "...\n";
     });
@@ -140,7 +117,6 @@ void run_benchmark() {
     std::cout << "  VWAP:           $" << ana.get_vwap() / 100.0  << "\n";
 
     print_sep();
-    // Arbitrage demo
     std::cout << "[ARBITRAGE — BELLMAN-FORD]\n";
     GraphEngine graph;
     std::vector<std::vector<double>> rates = {
@@ -158,12 +134,7 @@ void run_benchmark() {
     std::cout << "✅ Benchmark complete.\n";
 }
 
-// ============================================================================
-// DAEMON MODE — Real Shared Memory Live Trading
-// ============================================================================
 void run_daemon(const std::string& shm_name) {
-    // All startup/diagnostic text goes to stderr so stdout remains a
-    // clean JSON-only stream for the Rust orchestrator to parse.
     std::cerr << R"(
   __  __            _        _    __  __
  |  \/  | __ _ _ __| | _____| |_  \ \/ / _ __ __ _ _   _
@@ -184,18 +155,14 @@ void run_daemon(const std::string& shm_name) {
     EngineLoop engine(cfg);
     g_engine_ptr = &engine;
 
-    // Register snapshot sink: JSON lines to stdout for Rust orchestrator to read.
-    // Non-JSON diagnostics go to stderr.
     engine.on_snapshot([](const std::string& json) {
         std::cout << json << '\n';
         std::cout.flush();
     });
 
-    // Install signal handlers for clean shutdown
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    // Blocks until stop() is called
     engine.run_from_shared_memory(shm_name);
 
     const auto& s = engine.stats();
@@ -209,9 +176,6 @@ void run_daemon(const std::string& shm_name) {
     g_engine_ptr = nullptr;
 }
 
-// ============================================================================
-// Entry Point
-// ============================================================================
 int main(int argc, char* argv[]) {
     std::string mode    = "--benchmark";
     std::string shm_name = SharedMemoryManager::DEFAULT_SHM_NAME;
