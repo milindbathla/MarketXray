@@ -31,13 +31,13 @@ public:
         : mu_(mu), alpha_(alpha), beta_(beta), current_intensity_(mu) {}
 
     // Call this every time an event (trade/large cancel) arrives
-    void record_event(double timestamp_ns) {
-        events_.push_back(timestamp_ns);
+    void record_event(double timestamp_s) {
+        events_.push_back(timestamp_s);
         // Prune old events to avoid unbounded memory use (keep last 200)
         if (events_.size() > 200) {
             events_.pop_front();
         }
-        current_intensity_ = compute_intensity(timestamp_ns);
+        current_intensity_ = compute_intensity(timestamp_s);
     }
 
     // Compute the instantaneous Hawkes intensity at time t
@@ -56,8 +56,8 @@ public:
 
     // Probability that next event arrives within 'delta_t' nanoseconds
     // P = 1 - exp(-lambda * delta_t)
-    double probability_next_event_within(double delta_t_ns) const noexcept {
-        return 1.0 - std::exp(-current_intensity_ * (delta_t_ns * 1e-9));
+    double probability_next_event_within(double timestamp_s, double delta_t_ns) const noexcept {
+        return 1.0 - std::exp(-compute_intensity(timestamp_s) * (delta_t_ns * 1e-9));
     }
 
     // Is the process in a "critical" regime? (α/β >= 1 is explosive)

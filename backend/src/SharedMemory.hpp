@@ -153,7 +153,7 @@ public:
     SharedMemoryBlock* block() const noexcept { return block_; }
 
     // Spin-wait until the Rust producer sets rust_ready = 1
-    void wait_for_rust(uint32_t timeout_ms = 10000) const {
+    void wait_for_rust(uint32_t timeout_ms = 120000) const {
         uint32_t elapsed = 0;
         while (block_->header.rust_ready.load(std::memory_order_acquire) != 1) {
             #ifdef _WIN32

@@ -1,0 +1,17 @@
+[package]
+name = "rust_ingestor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flate2 = "1"
+futures-util = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "net", "time", "sync", "io-util", "signal"] }
+tokio-tungstenite = "0.23"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Memory"] }

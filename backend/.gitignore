@@ -1,0 +1,69 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+.cmake/
+target/
+rust_ingestor/target/
+
+# Compiled binaries
+*.exe
+*.out
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# MSVC / Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.pdb
+*.ilk
+*.exp
+.vs/
+x64/
+x86/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# CLion / JetBrains
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+
+# NASDAQ ITCH data — 4GB binary, never commit
+res/
+
+# Rust build artifacts
+rust_ingestor/target/

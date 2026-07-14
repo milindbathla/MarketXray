@@ -21,7 +21,7 @@ enum class OrderType : uint8_t {
 // Represents an incoming tick from Rust via Shared Memory.
 // #pragma pack(1) ensures no implicit struct padding (Rust ABI compatibility).
 // alignas(64) places the struct on its own cache line to prevent false sharing.
-// Total size: 8+8+4+4+1+1+38 padding = exactly 64 bytes.
+// Total size: 8+8+4+4+1+1+1+37 padding = exactly 64 bytes.
 #pragma pack(push, 1)
 struct alignas(64) Tick {
     uint64_t timestamp_ns; // Nanosecond precision timestamp
@@ -30,7 +30,8 @@ struct alignas(64) Tick {
     uint32_t quantity;     // Number of shares
     Side side;             // BUY = 1, SELL = 2
     OrderType type;        // ADD = 1, CANCEL = 2, EXECUTE = 3
-    uint8_t padding[38];   // Explicit padding to fill the 64-byte cache line
+    uint8_t trade_side_is_aggressor; // EXECUTE: 1 for standalone trade messages
+    uint8_t padding[37];   // Explicit padding to fill the 64-byte cache line
 };
 #pragma pack(pop)
 
@@ -39,6 +40,7 @@ struct OrderNode {
     uint64_t order_id;
     uint32_t price;
     uint32_t quantity;
+    Side side;
     uint64_t timestamp_ns;
     OrderNode* next;
     OrderNode* prev;

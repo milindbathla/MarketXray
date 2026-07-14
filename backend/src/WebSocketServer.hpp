@@ -20,20 +20,61 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <cerrno>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#ifdef _WIN32
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #ifndef MSG_NOSIGNAL
+    #define MSG_NOSIGNAL 0
+  #endif
+#else
+  #include <arpa/inet.h>
+  #include <fcntl.h>
+  #include <netinet/in.h>
+  #include <sys/select.h>
+  #include <sys/socket.h>
+  #include <unistd.h>
+#endif
 
 namespace mxray {
+
+// Winsock/POSIX portability shims — the rest of the file uses POSIX idioms.
+#ifdef _WIN32
+using socket_t = SOCKET;
+using ssz_t    = int; // recv/send return int on Winsock
+static const socket_t INVALID_SOCK = INVALID_SOCKET;
+inline int  close_socket(socket_t s) { return ::closesocket(s); }
+inline bool send_would_block()       { return WSAGetLastError() == WSAEWOULDBLOCK; }
+inline void set_nonblocking_fd(socket_t s) { u_long m = 1; ::ioctlsocket(s, FIONBIO, &m); }
+// One-time Winsock init — WSAStartup must precede any socket call.
+inline void ensure_sockets_initialized() {
+    struct WinsockInit {
+        WinsockInit()  { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); }
+        ~WinsockInit() { WSACleanup(); }
+    };
+    static WinsockInit init;
+}
+#else
+using socket_t = int;
+using ssz_t    = ssize_t;
+static const socket_t INVALID_SOCK = -1;
+inline int  close_socket(socket_t s) { return ::close(s); }
+inline bool send_would_block()       { return errno == EAGAIN || errno == EWOULDBLOCK; }
+inline void set_nonblocking_fd(socket_t s) {
+    int flags = ::fcntl(s, F_GETFL, 0);
+    ::fcntl(s, F_SETFL, flags | O_NONBLOCK);
+}
+inline void ensure_sockets_initialized() {}
+#endif
 
 // =============================================================================
 // Internal helpers — SHA-1 (FIPS 180-4) and Base64
@@ -141,7 +182,7 @@ inline std::string text_frame(const std::string& payload) {
 class WebSocketServer {
 public:
     explicit WebSocketServer(uint16_t port = 9001)
-        : port_(port), server_fd_(-1), running_(false) {}
+        : port_(port), server_fd_(INVALID_SOCK), running_(false) {}
 
     ~WebSocketServer() { stop(); }
 
@@ -154,15 +195,17 @@ public:
     // Returns true on success.
     // -------------------------------------------------------------------------
     bool start() {
+        ensure_sockets_initialized();
         server_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (server_fd_ < 0) {
+        if (server_fd_ == INVALID_SOCK) {
             std::cerr << "[WS] socket() failed\n";
             return false;
         }
 
         int opt = 1;
-        ::setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-        set_nonblocking(server_fd_);
+        ::setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR,
+                     reinterpret_cast<const char*>(&opt), sizeof(opt));
+        set_nonblocking_fd(server_fd_);
 
         sockaddr_in addr{};
         addr.sin_family      = AF_INET;
@@ -171,8 +214,8 @@ public:
 
         if (::bind(server_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
             std::cerr << "[WS] bind() failed on port " << port_ << "\n";
-            ::close(server_fd_);
-            server_fd_ = -1;
+            close_socket(server_fd_);
+            server_fd_ = INVALID_SOCK;
             return false;
         }
 
@@ -190,9 +233,9 @@ public:
     void stop() {
         running_.store(false, std::memory_order_relaxed);
         if (loop_thread_.joinable()) loop_thread_.join();
-        if (server_fd_ >= 0) {
-            ::close(server_fd_);
-            server_fd_ = -1;
+        if (server_fd_ != INVALID_SOCK) {
+            close_socket(server_fd_);
+            server_fd_ = INVALID_SOCK;
         }
     }
 
@@ -206,10 +249,9 @@ public:
         std::lock_guard<std::mutex> lk(clients_mutex_);
         for (auto it = clients_.begin(); it != clients_.end(); ) {
             if (!it->handshake_done) { ++it; continue; }
-            ssize_t sent = ::send(it->fd, frame.data(), frame.size(), MSG_NOSIGNAL);
-            if (sent < 0) {
+            if (!send_all_nonblocking(it->fd, frame.data(), frame.size())) {
                 std::cout << "[WS] Client " << it->fd << " disconnected (send error)\n";
-                ::close(it->fd);
+                close_socket(it->fd);
                 it = clients_.erase(it);
             } else {
                 ++it;
@@ -229,11 +271,11 @@ private:
     // Per-client state
     // -------------------------------------------------------------------------
     struct Client {
-        int         fd             = -1;
+        socket_t    fd             = INVALID_SOCK;
         bool        handshake_done = false;
         std::string recv_buf;
 
-        explicit Client(int fd_) : fd(fd_) {}
+        explicit Client(socket_t fd_) : fd(fd_) {}
     };
 
     // -------------------------------------------------------------------------
@@ -245,13 +287,15 @@ private:
             fd_set rfds;
             FD_ZERO(&rfds);
             FD_SET(server_fd_, &rfds);
-            int maxfd = server_fd_;
+            // On Winsock the first select() argument is ignored; on POSIX it
+            // must be the highest fd + 1.
+            int maxfd = static_cast<int>(server_fd_);
 
             {
                 std::lock_guard<std::mutex> lk(clients_mutex_);
                 for (const auto& c : clients_) {
                     FD_SET(c.fd, &rfds);
-                    maxfd = std::max(maxfd, c.fd);
+                    maxfd = std::max(maxfd, static_cast<int>(c.fd));
                 }
             }
 
@@ -263,10 +307,10 @@ private:
             if (FD_ISSET(server_fd_, &rfds)) {
                 sockaddr_in cli{};
                 socklen_t cli_len = sizeof(cli);
-                int fd = ::accept(server_fd_,
+                socket_t fd = ::accept(server_fd_,
                     reinterpret_cast<sockaddr*>(&cli), &cli_len);
-                if (fd >= 0) {
-                    set_nonblocking(fd);
+                if (fd != INVALID_SOCK) {
+                    set_nonblocking_fd(fd);
                     std::lock_guard<std::mutex> lk(clients_mutex_);
                     clients_.emplace_back(fd);
                     std::cout << "[WS] TCP connection from "
@@ -280,10 +324,10 @@ private:
                 if (!FD_ISSET(it->fd, &rfds)) { ++it; continue; }
 
                 char tmp[8192];
-                ssize_t n = ::recv(it->fd, tmp, sizeof(tmp), 0);
+                ssz_t n = ::recv(it->fd, tmp, sizeof(tmp), 0);
                 if (n <= 0) {
                     std::cout << "[WS] Client " << it->fd << " disconnected\n";
-                    ::close(it->fd);
+                    close_socket(it->fd);
                     it = clients_.erase(it);
                     continue;
                 }
@@ -295,7 +339,11 @@ private:
                     if (it->recv_buf.find("\r\n\r\n") != std::string::npos) {
                         std::string response = build_handshake_response(it->recv_buf);
                         if (!response.empty()) {
-                            ::send(it->fd, response.data(), response.size(), MSG_NOSIGNAL);
+                            if (!send_all_nonblocking(it->fd, response.data(), response.size())) {
+                                close_socket(it->fd);
+                                it = clients_.erase(it);
+                                continue;
+                            }
                             it->handshake_done = true;
                             it->recv_buf.clear();
                             std::cout << "[WS] Handshake complete — client "
@@ -303,8 +351,8 @@ private:
                         } else {
                             // Bad request — reject
                             const char* bad = "HTTP/1.1 400 Bad Request\r\n\r\n";
-                            ::send(it->fd, bad, strlen(bad), MSG_NOSIGNAL);
-                            ::close(it->fd);
+                            send_all_nonblocking(it->fd, bad, strlen(bad));
+                            close_socket(it->fd);
                             it = clients_.erase(it);
                             continue;
                         }
@@ -317,7 +365,7 @@ private:
 
         // Clean up all remaining clients on shutdown
         std::lock_guard<std::mutex> lk(clients_mutex_);
-        for (auto& c : clients_) ::close(c.fd);
+        for (auto& c : clients_) close_socket(c.fd);
         clients_.clear();
     }
 
@@ -350,16 +398,36 @@ private:
                "\r\n";
     }
 
-    static void set_nonblocking(int fd) {
-        int flags = ::fcntl(fd, F_GETFL, 0);
-        ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    static bool wait_writable(socket_t fd) {
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(fd, &wfds);
+        timeval tv{0, 5000}; // 5 ms; slow clients are disconnected under load.
+        return ::select(static_cast<int>(fd) + 1, nullptr, &wfds, nullptr, &tv) > 0;
+    }
+
+    static bool send_all_nonblocking(socket_t fd, const char* data, size_t len) {
+        size_t offset = 0;
+        while (offset < len) {
+            ssz_t sent = ::send(fd, data + offset,
+                                static_cast<int>(len - offset), MSG_NOSIGNAL);
+            if (sent > 0) {
+                offset += static_cast<size_t>(sent);
+                continue;
+            }
+            if (sent < 0 && send_would_block()) {
+                if (wait_writable(fd)) continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     // -------------------------------------------------------------------------
     // Members
     // -------------------------------------------------------------------------
     uint16_t              port_;
-    int                   server_fd_;
+    socket_t              server_fd_;
     std::atomic<bool>     running_;
     std::thread           loop_thread_;
     mutable std::mutex    clients_mutex_;

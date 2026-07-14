@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(MarketXray_Engine VERSION 2.0 LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -47,16 +49,26 @@ add_executable(market_xray_ws
     src/main_ws.cpp
 )
 
+if(BUILD_TESTING)
+    add_executable(engine_regression_tests
+        tests/engine_regression_tests.cpp
+    )
+    add_test(NAME engine_regression_tests COMMAND engine_regression_tests)
+endif()
+
 # ---------------------------------------------------------------
 # Windows: kernel32 for CreateFileMapping/MapViewOfFile (Shared Memory)
 # Linux:   rt for shm_open/mmap, pthread for threading
 # ---------------------------------------------------------------
 if(WIN32)
     target_link_libraries(market_xray    PRIVATE kernel32)
-    target_link_libraries(market_xray_ws PRIVATE kernel32)
+    target_link_libraries(market_xray_ws PRIVATE kernel32 ws2_32)
 elseif(UNIX)
     target_link_libraries(market_xray    PRIVATE rt pthread)
     target_link_libraries(market_xray_ws PRIVATE rt pthread)
+    if(BUILD_TESTING)
+        target_link_libraries(engine_regression_tests PRIVATE rt pthread)
+    endif()
 endif()
 
 # ---------------------------------------------------------------
